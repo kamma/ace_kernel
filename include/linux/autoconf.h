@@ -1,7 +1,7 @@
 /*
  * Automatically generated C config: don't edit
  * Linux kernel version: 2.6.32.21
- * Wed Feb  9 10:34:01 2011
+ * Wed Feb  9 13:02:47 2011
  */
 #define AUTOCONF_INCLUDED
 #define CONFIG_VIDEO_V4L1_COMPAT 1
@@ -454,7 +454,7 @@
 #define CONFIG_VIRT_TO_BUS 1
 #define CONFIG_MD 1
 #define CONFIG_MSM_MDP40 1
-#define CONFIG_LOCALVERSION "-kammaocv18bfsslqb"
+#define CONFIG_LOCALVERSION "-kammaocv19bfs"
 #define CONFIG_MEDIA_TUNER_MC44S803_MODULE 1
 #define CONFIG_ZLIB_INFLATE 1
 #define CONFIG_ARM_ERRATA_460075 1

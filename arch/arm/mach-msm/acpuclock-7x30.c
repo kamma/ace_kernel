@@ -88,8 +88,15 @@ static struct cpufreq_frequency_table freq_table[] = {
 	{ 5, 1209600  },
 	{ 6, 1305600  },
 	{ 7, 1459200  },
-	{ 8, 1536000  },
-	{ 9, CPUFREQ_TABLE_END },
+	{ 8, 1478400  },
+	{ 9, 1497600  },
+	{ 10, 1516800  },
+	{ 11, 1536000  },
+// this is standard max
+	{ 12, 1574400  },
+	{ 13, 1612800  },
+	{ 14, 1651200  },
+	{ 15, CPUFREQ_TABLE_END },
 };
 
 
@@ -114,7 +121,14 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 1209600, PLL_2,   3, 0,  192000, 1200, VDD_RAW(1200) },
 	{ 1305600, PLL_2,   3, 0,  192000, 1250, VDD_RAW(1250) },
 	{ 1459200, PLL_2,   3, 0,  192000, 1250, VDD_RAW(1250) },
+	{ 1478400, PLL_2,   3, 0,  192000, 1250, VDD_RAW(1250) },
+	{ 1497600, PLL_2,   3, 0,  192000, 1275, VDD_RAW(1275) },
+	{ 1516800, PLL_2,   3, 0,  192000, 1300, VDD_RAW(1300) },
 	{ 1536000, PLL_2,   3, 0,  192000, 1300, VDD_RAW(1300) },
+// this is standard max
+	{ 1574400, PLL_2,   3, 0,  192000, 1325, VDD_RAW(1325) },
+	{ 1612800, PLL_2,   3, 0,  192000, 1350, VDD_RAW(1350) },
+	{ 1651200, PLL_2,   3, 0,  192000, 1375, VDD_RAW(1375) },
 	{ 0 }
 };
 static unsigned long max_axi_rate;
@@ -496,14 +510,21 @@ ssize_t acpuclk_get_vdd_levels_str(char *buf)
     if (buf)
     pr_info("acpuclk_get_vdd_levels_str\n");
     {
+		len += sprintf(buf + len, "acpu_freq_tbl\n");
 	    mutex_lock(&drv_state.lock);
 	    for (i = 0; acpu_freq_tbl[i].acpu_clk_khz; i++) 
 	    {
-		if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID)
-			len += sprintf(buf + len, "%8u: %4d\n", acpu_freq_tbl[i].acpu_clk_khz, acpu_freq_tbl[i].vdd_mv);
+			if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID)
+				len += sprintf(buf + len, "%2d. %8u: %4d\n", i, acpu_freq_tbl[i].acpu_clk_khz, acpu_freq_tbl[i].vdd_mv);
+		}
+		len += sprintf(buf + len, "\nfreq_table\n");
+		for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
+		{
+			if (freq_table[i].frequency != CPUFREQ_ENTRY_INVALID)
+				len += sprintf(buf + len, "%2d. %8u\n", i, freq_table[i].frequency);
 	    }
-	mutex_unlock(&drv_state.lock);
-    }
+		mutex_unlock(&drv_state.lock);
+	}
     return len;
 }
 
@@ -533,23 +554,82 @@ void acpuclk_set_vdd(unsigned int acpu_khz, int vdd)
 }
 void acpuclk_set_freq(unsigned int new_acpu_khz, int vdd)
 {
+	int i, max_acpu_index=0, max_ft_index=0;
     pr_info("acpuclk_set_freq\n");
+    for (i = 0; acpu_freq_tbl[i].acpu_clk_khz; i++)
+    {
+		max_acpu_index = i;
+	}
+
+    for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
+    {
+		max_ft_index = i;
+	}
+	pr_info("acpuclk_set_freq: updating freq_table item - max_acpu_index=%2d max_ft_index=%2d acpu_freq=%8u ft_freq=%8u\n", max_acpu_index, max_ft_index, acpu_freq_tbl[max_acpu_index].acpu_clk_khz, freq_table[max_ft_index].frequency);
     vdd = vdd / 25 * 25;	//! regulator only accepts multiples of 25 (mV)
     policy = cpufreq_cpu_get(smp_processor_id());
     mutex_lock(&drv_state.lock);
 	    if (new_acpu_khz>998400 && (new_acpu_khz-998400)%19200==0)
 	    {
-			freq_table[8].frequency = new_acpu_khz;
-			acpu_freq_tbl[13].acpu_clk_khz = new_acpu_khz;
-			acpu_freq_tbl[13].vdd_mv = min(max(vdd, 875), 1500);
-			acpu_freq_tbl[13].vdd_raw = VDD_RAW(min(max(vdd, 875), 1500));
-			policy->cpuinfo.min_freq = freq_table[0].frequency;
-			policy->cpuinfo.max_freq = freq_table[8].frequency;
-			policy->min = freq_table[0].frequency;
-			policy->max = freq_table[8].frequency;
-			pr_info("acpuclk_set_freq-post max_freq: newFreq=%8u mv=%4d raw=%4d\n", acpu_freq_tbl[13].acpu_clk_khz, acpu_freq_tbl[13].vdd_mv, acpu_freq_tbl[13].vdd_raw);
+			freq_table[max_ft_index].frequency = new_acpu_khz;
+			acpu_freq_tbl[max_acpu_index].acpu_clk_khz = new_acpu_khz;
+			acpu_freq_tbl[max_acpu_index].vdd_mv = min(max(vdd, 875), 1500);
+			acpu_freq_tbl[max_acpu_index].vdd_raw = VDD_RAW(min(max(vdd, 875), 1500));
+			policy->cpuinfo.max_freq = freq_table[max_ft_index].frequency;
+			policy->max = freq_table[max_ft_index].frequency;
+			pr_info("acpuclk_set_freq-post max_freq: newFreq=%8u mv=%4d raw=%4d\n", acpu_freq_tbl[max_acpu_index].acpu_clk_khz, acpu_freq_tbl[max_acpu_index].vdd_mv, acpu_freq_tbl[max_acpu_index].vdd_raw);
 		}
     mutex_unlock(&drv_state.lock);
+    
+}
+void  acpuclk_set_freq_by_index(unsigned int old_acpu_khz, unsigned int new_acpu_khz, int vdd)
+{
+    int i, ft_index=-1, index=-1;
+    pr_info("acpuclk_set_freq_by_index: old_acpu_khz=%8u new_acpu_khz=%8u vdd=%4d\n", old_acpu_khz, new_acpu_khz, vdd);
+    
+    if (new_acpu_khz<1017600 || new_acpu_khz%19200!=0 || old_acpu_khz<1017600)
+		return;
+    
+    for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
+    {
+		if (freq_table[i].frequency == old_acpu_khz) {
+			ft_index = i;
+			break;
+		}
+	}
+	for (i = 0; acpu_freq_tbl[i].acpu_clk_khz; i++)
+    {
+		if (acpu_freq_tbl[i].acpu_clk_khz == old_acpu_khz) {
+			index = i;
+			break;
+		}
+	}
+    
+    if (ft_index<0 || index<0)
+		return;
+		
+	pr_info("acpuclk_set_freq_by_index: acpu_index=%8u ft_index=%2d\n", index, ft_index);
+	
+    vdd = vdd / 25 * 25;	//! regulator only accepts multiples of 25 (mV)
+    policy = cpufreq_cpu_get(smp_processor_id());
+    mutex_lock(&drv_state.lock);
+	    if (new_acpu_khz>=1017600 && new_acpu_khz%19200==0)
+	    {
+			freq_table[ft_index].frequency = new_acpu_khz;
+			acpu_freq_tbl[index].acpu_clk_khz = new_acpu_khz;
+			acpu_freq_tbl[index].vdd_mv = min(max(vdd, 875), 1500);
+			acpu_freq_tbl[index].vdd_raw = VDD_RAW(min(max(vdd, 875), 1500));
+			if (policy->cpuinfo.max_freq < freq_table[ft_index].frequency || policy->max < freq_table[ft_index].frequency) {
+				policy->cpuinfo.max_freq = freq_table[ft_index].frequency;
+				policy->max = freq_table[ft_index].frequency;
+				pr_info("acpuclk_set_freq_by_index-setting max policy");
+			}
+			pr_info("acpuclk_set_freq_by_index-acpu_post: index=%2d newFreq=%8u mv=%4d raw=%4d\n", index, acpu_freq_tbl[index].acpu_clk_khz, acpu_freq_tbl[index].vdd_mv, acpu_freq_tbl[index].vdd_raw);
+			pr_info("acpuclk_set_freq_by_index-ft_post: index=%2d newFreq=%8u\n", ft_index, freq_table[ft_index].frequency);
+		}
+    mutex_unlock(&drv_state.lock);
+
+	
     
 }
 #endif
