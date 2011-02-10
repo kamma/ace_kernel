@@ -104,6 +104,13 @@ int dbg_condition(char* name) {
 	return 0; // len = 9, but name not same
 }
 
+/* use independent work queue - 1012 */
+static struct workqueue_struct *g_smd_work_queue;
+
+/* dump read data, this flag will be set while aT */
+static int g_dump_read = 0;
+static int g_dump_write = 0;
+
 static inline void notify_other_smsm(void)
 {
 #if defined(CONFIG_ARCH_MSM7X30)
@@ -174,6 +181,8 @@ uint32_t raw_smsm_get_state(enum smsm_state_item item)
 static int check_for_modem_crash(void)
 {
 	if (raw_smsm_get_state(SMSM_STATE_MODEM) & SMSM_RESET) {
+		dump_stack();
+		msm_pm_flush_console();
 		handle_modem_crash();
 		return -1;
 	}
@@ -281,10 +290,6 @@ static void smd_channel_probe_worker(struct work_struct *work)
 		return;
 	}
 	for (n = 0; n < 64; n++) {
-		printk("[dzt] smd_ch_allicated[%d]=%d\n", n, smd_ch_allocated[n]);
-		printk("[dzt] shared[%d].ctype = %x\n", n, shared[n].ctype);
-		printk("[dzt] shared[%d].name = %s\n", n, shared[n].name);
-
 		if (smd_ch_allocated[n])
 			continue;
 		if (!shared[n].ref_count)
@@ -392,8 +397,19 @@ static int ch_read(struct smd_channel *ch, void *_data, int len)
 		if (n > len)
 			n = len;
 
-		if (_data)
+		if (_data) {
+			/* dump read - AT channel */
+			if(g_dump_read == 1) {
+				if(!strcmp(ch->name, "SMD_DS")) {
+					int i = 0;
+					printk("[dzt] %s: memcpy data: \n", __FUNCTION__);
+					for(i=0; i<n; i++)
+						printk("%c", data[i]);
+					printk("\n");
+				}
+			}// g_dump_read
 			memcpy(data, ptr, n);
+		}
 
 		data += n;
 		len -= n;
@@ -479,7 +495,12 @@ static void do_smd_probe(void)
 	struct smem_shared *shared = (void *) MSM_SHARED_RAM_BASE;
 	if (shared->heap_info.free_offset != last_heap_free) {
 		last_heap_free = shared->heap_info.free_offset;
+
+		/* use independent work queue - 1012 */
+		/*
 		schedule_work(&probe_work);
+		*/
+		queue_work(g_smd_work_queue, &probe_work);
 	}
 }
 
@@ -680,11 +701,11 @@ static int smd_stream_write(smd_channel_t *ch, const void *_data, int len)
 		return -EINVAL;
 	else if (len == 0)
 		return 0;
-
-//	if(dbg_condition(ch->name)){
-//		printk("[dzt] %s: write while start, name=%s\n", __FUNCTION__, ch->name);
-//	}
-
+/*
+	if(dbg_condition(ch->name)){
+		printk("[dzt] %s: write while start, name=%s\n", __FUNCTION__, ch->name);
+	}
+*/
 	while ((xfer = ch_write_buffer(ch, &ptr)) != 0) {
 		if(dbg_condition(ch->name)) {
 			if(xfer <= fifo_almost_full_threshold) {
@@ -700,6 +721,20 @@ static int smd_stream_write(smd_channel_t *ch, const void *_data, int len)
 			break;
 		if (xfer > len)
 			xfer = len;
+		/* dump write - AT channel */
+		if(!strcmp(ch->name, "SMD_DS")) {
+			if(g_dump_write == 1) {
+				int i = 0;
+				printk("[dzt] %s: memcpy buf: \n", __FUNCTION__);
+				for(i=0; i<xfer; i++)
+					printk("%c", buf[i]);
+				printk("\n");
+			}
+			if(strstr(buf, "aT\r")) {
+				printk("got aT, set g_dump_read=1\n");
+				g_dump_read = 1;
+			}
+		}
 		memcpy(ptr, buf, xfer);
 		ch_write_done(ch, xfer);
 		len -= xfer;
@@ -707,11 +742,11 @@ static int smd_stream_write(smd_channel_t *ch, const void *_data, int len)
 		if (len == 0)
 			break;
 	}
-
-//	if(dbg_condition(ch->name)) {
-//		printk("[dzt] %s: write while end, name=%s, orig_len=%d, len=%d\n", __FUNCTION__, ch->name, orig_len, len);
-//	}
-
+/*
+	if(dbg_condition(ch->name)) {
+		printk("[dzt] %s: write while end, name=%s, orig_len=%d, len=%d\n", __FUNCTION__, ch->name, orig_len, len);
+	}
+*/
 	if (orig_len - len) {
 		if(dbg_condition(ch->name) && fifo_almost_full == 1) {
 			printk("[dzt] %s: name=%s, call notify_modem_smd()\n", __FUNCTION__, ch->name);
@@ -1230,6 +1265,8 @@ int smd_core_init(void)
 		state = smem_item(SMEM_SMSM_SHARED_STATE, &size);
 		if (size == SMSM_V1_SIZE || size == SMSM_V2_SIZE) {
 			smd_info.state = (unsigned)state;
+			pr_info("phy addr of smd_info.state=0x%X\n",
+				MSM_SHARED_RAM_PHYS + (smd_info.state -	(uint32_t)MSM_SHARED_RAM_BASE));
 			break;
 		}
 	}
@@ -1287,7 +1324,14 @@ extern void msm_init_last_radio_log(struct module *);
 
 static int __init msm_smd_probe(struct platform_device *pdev)
 {
-	pr_info("smd_init()\n");
+	pr_info("smd_init() - 1012 using independent wq\n");
+
+	/* use independent work queue - 1012 */
+	g_smd_work_queue = create_workqueue("g_smd");
+	if (!g_smd_work_queue) {
+		pr_err("g_smd create_workqueue() failed\n");
+		return -1;
+	}
 
 	INIT_WORK(&probe_work, smd_channel_probe_worker);
 

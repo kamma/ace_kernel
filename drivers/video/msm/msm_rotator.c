@@ -195,7 +195,7 @@ int msm_rotator_imem_allocate(int requestor)
 			flush_scheduled_work();
 
 		if (msm_rotator_dev->imem_clk_state == CLK_DIS) {
-			printk(KERN_DEBUG "%s(%d) clk_enable clkstate=%d\n", __func__, __LINE__, msm_rotator_dev->imem_clk_state);
+			pr_info("%s(%d) set clkstate from %d as %d\n", __func__, __LINE__, msm_rotator_dev->imem_clk_state, CLK_EN);
 			clk_enable(msm_rotator_dev->imem_clk);
 			msm_rotator_dev->imem_clk_state = CLK_EN;
 		}
@@ -223,7 +223,7 @@ static void msm_rotator_imem_clk_work_f(struct work_struct *work)
 {
 	if (mutex_trylock(&msm_rotator_dev->imem_lock)) {
 		if (msm_rotator_dev->imem_clk_state == CLK_EN) {
-			printk(KERN_DEBUG "%s(%d) clk_disable clkstate=%d\n", __func__, __LINE__, msm_rotator_dev->imem_clk_state);
+			pr_info("%s(%d) set clkstate from %d as %d\n", __func__, __LINE__, msm_rotator_dev->imem_clk_state, CLK_DIS);
 			clk_disable(msm_rotator_dev->imem_clk);
 			msm_rotator_dev->imem_clk_state = CLK_DIS;
 		}
@@ -1220,39 +1220,19 @@ static int __devexit msm_rotator_remove(struct platform_device *plat_dev)
 #ifdef CONFIG_PM
 static int msm_rotator_suspend(struct platform_device *dev, pm_message_t state)
 {
-	mutex_lock(&msm_rotator_dev->imem_lock);
-	if (msm_rotator_dev->imem_clk_state == CLK_EN) {
-		printk(KERN_DEBUG "%s(%d) clk_disable clkstate %d", __func__, __LINE__, msm_rotator_dev->imem_clk_state);
-		msm_rotator_dev->imem_clk_state = CLK_DIS;
+	if (msm_rotator_dev->imem_clk_state == CLK_EN)
 		clk_disable(msm_rotator_dev->imem_clk);
-	}
-	mutex_unlock(&msm_rotator_dev->imem_lock);
-
-	mutex_lock(&msm_rotator_dev->rotator_lock);
-	if (msm_rotator_dev->rot_clk_state == CLK_EN) {
-		msm_rotator_dev->rot_clk_state = CLK_DIS;
+	if (msm_rotator_dev->rot_clk_state == CLK_EN)
 		disable_rot_clks();
-	}
-	mutex_unlock(&msm_rotator_dev->rotator_lock);
 	return 0;
 }
 
 static int msm_rotator_resume(struct platform_device *dev)
 {
-	mutex_lock(&msm_rotator_dev->imem_lock);
-	if (msm_rotator_dev->imem_clk_state == CLK_DIS) {
-		printk(KERN_DEBUG "%s(%d) clk_enable clkstate %d", __func__, __LINE__, msm_rotator_dev->imem_clk_state);
-		msm_rotator_dev->imem_clk_state = CLK_EN;
+	if (msm_rotator_dev->imem_clk_state == CLK_EN)
 		clk_enable(msm_rotator_dev->imem_clk);
-	}
-	mutex_unlock(&msm_rotator_dev->imem_lock);
-
-	mutex_lock(&msm_rotator_dev->rotator_lock);
-	if (msm_rotator_dev->rot_clk_state == CLK_DIS) {
-		msm_rotator_dev->rot_clk_state = CLK_EN;
+	if (msm_rotator_dev->rot_clk_state == CLK_EN)
 		enable_rot_clks();
-	}
-	mutex_unlock(&msm_rotator_dev->rotator_lock);
 	return 0;
 }
 #endif

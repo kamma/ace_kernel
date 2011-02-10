@@ -200,7 +200,7 @@ int audpreproc_enable(int enc_id, audpreproc_event_func func, void *private)
 	struct audpreproc_state *audpreproc = &the_audpreproc_state;
 	int res = 0;
 
-	if (enc_id < 0 || enc_id > MAX_ENC_COUNT)
+	if (enc_id < 0 || enc_id >= MAX_ENC_COUNT)
 		return -EINVAL;
 
 	mutex_lock(audpreproc->lock);
@@ -248,7 +248,7 @@ void audpreproc_disable(int enc_id, void *private)
 {
 	struct audpreproc_state *audpreproc = &the_audpreproc_state;
 
-	if (enc_id < 0 || enc_id > MAX_ENC_COUNT)
+	if (enc_id < 0 || enc_id >= MAX_ENC_COUNT)
 		return;
 
 	mutex_lock(audpreproc->lock);

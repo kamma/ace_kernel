@@ -1,1 +1,1 @@
-#define UTS_RELEASE "2.6.32.21-kammaocv19bfs"
+#define UTS_RELEASE "2.6.32.21-kammaocv19cfs"

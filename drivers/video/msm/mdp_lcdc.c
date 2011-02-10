@@ -35,6 +35,7 @@
 #endif
 #ifdef CONFIG_PANEL_SELF_REFRESH
 #include <linux/kthread.h>
+#include <linux/spi/spi.h>
 #endif
 
 #if 0
@@ -61,11 +62,12 @@ static struct mdp4_overlay_pipe *lcdc_pipe;
 #define ICM_DBG(s...) do {} while (0)
 #endif
 
-/* set the timeout to 200 milliseconds */
+/* set the timeout to 333 milliseconds */
 #define PANEL_ENTER_IDLE_TIMEOUT HZ/5
 /* Afetr setting ICM=1, we need to keep sending the RGB signal more than 2-frame */
 #define PANEL_IDLE_STABLE_TIMEOUT 48
 
+int qspi_send_16bit(unsigned char id, unsigned data);
 static struct task_struct *th_display;
 struct panel_icm_info *panel_icm;
 DECLARE_WAIT_QUEUE_HEAD(panel_update_wait_queue);
@@ -83,15 +85,13 @@ static int icm_check_panel_update(void)
 	return ret;
 }
 
-static int icm_thread(void *data)
+static int panel_icm_thread(void *data)
 {
 	struct mdp_lcdc_info *lcdc;
-	struct msm_lcdc_panel_ops *panel_ops;
 	int rc;
 	unsigned long irq_flags = 0;
 
 	lcdc = data;
-	panel_ops = lcdc->pdata->panel_ops;
 	while (1) {
 		rc = wait_event_timeout(panel_update_wait_queue, icm_check_panel_update() == 1, PANEL_ENTER_IDLE_TIMEOUT);
 		ICM_DBG("ICM Thread:wake up rc=%d \n", rc);
@@ -100,9 +100,9 @@ static int icm_thread(void *data)
 			ICM_DBG("EnterICM: icm_mode=%d icm_doable=%d \n", panel_icm->icm_mode, panel_icm->icm_doable);
 			if (panel_icm->icm_mode == false && panel_icm->icm_doable == true) {
 
-				if (panel_ops->refresh_enable)
-					panel_ops->refresh_enable(panel_ops);
-
+				qspi_send_16bit(0x1, 0x3B);
+				qspi_send_16bit(0x0, 0x00);
+				qspi_send_16bit(0x2, 0x13);
 				panel_icm->icm_mode = true;
 				msleep(PANEL_IDLE_STABLE_TIMEOUT);
 
@@ -110,7 +110,6 @@ static int icm_thread(void *data)
 				clk_disable(lcdc->pad_pclk);
 				clk_disable(lcdc->pclk);
 				clk_disable(lcdc->mdp_clk);
-				panel_icm->clock_enabled = false;
 				pr_info("EnterICM: enter ICM MODE done!!!\n");
 			}
 		} else {/* get update event, no timeout */
@@ -120,11 +119,10 @@ static int icm_thread(void *data)
 				clk_enable(lcdc->pclk);
 				clk_enable(lcdc->pad_pclk);
 				mdp_writel(lcdc->mdp, 1, MDP_LCDC_EN);
-				panel_icm->clock_enabled = true;
 
-				if (panel_ops->refresh_disable)
-					panel_ops->refresh_disable(panel_ops);
-
+				qspi_send_16bit(0x1, 0x3B);
+				qspi_send_16bit(0x0, 0x00);
+				qspi_send_16bit(0x2, 0x03);
 				panel_icm->icm_mode = false;
 				pr_info("LeaveICM: leave ICM MODE done !!!\n");
 			}
@@ -137,34 +135,7 @@ static int icm_thread(void *data)
 	return 0;
 }
 
-static void icm_force_leave(void)
-{
-	struct msm_lcdc_panel_ops *panel_ops;
-	unsigned long irq_flags = 0;
-
-	panel_ops = panel_icm->lcdc->pdata->panel_ops;
-
-	mutex_lock(&panel_icm->icm_lock);
-	ICM_DBG("Force Leave ICM: icm_mode=%d icm_doable=%d \n", panel_icm->icm_mode, panel_icm->icm_doable);
-	if (panel_icm->icm_mode == true) {
-		clk_enable(panel_icm->lcdc->mdp_clk);
-		clk_enable(panel_icm->lcdc->pclk);
-		clk_enable(panel_icm->lcdc->pad_pclk);
-		mdp_writel(panel_icm->lcdc->mdp, 1, MDP_LCDC_EN);
-		panel_icm->clock_enabled = true;
-		if (panel_ops->refresh_disable)
-			panel_ops->refresh_disable(panel_ops);
-		panel_icm->icm_mode = false;
-		panel_icm->icm_doable = true;
-                pr_info("ForceLeaveICM: leave ICM MODE done !!!\n");
-	}
-	spin_lock_irqsave(&panel_icm->lock, irq_flags);
-        panel_icm->panel_update = 0;
-        spin_unlock_irqrestore(&panel_icm->lock, irq_flags);
-	mutex_unlock(&panel_icm->icm_lock);
-}
-
-static int icm_init(struct mdp_lcdc_info *lcdc)
+static int display_selfrefresh_init(struct mdp_lcdc_info *lcdc)
 {
 	int ret = 0;
 
@@ -173,11 +144,8 @@ static int icm_init(struct mdp_lcdc_info *lcdc)
 	if (!panel_icm)
 		return -ENOMEM;
 	panel_icm->icm_doable = 1;
-	panel_icm->clock_enabled = true;
-	panel_icm->lcdc = lcdc;
-	panel_icm->force_leave = icm_force_leave;
 	mutex_init(&panel_icm->icm_lock);
-	th_display = kthread_run(icm_thread, lcdc, "panel-enterIdle");
+	th_display = kthread_run(panel_icm_thread, lcdc, "panel-enterIdle");
 	if (IS_ERR(th_display)) {
 		ret = PTR_ERR(th_display);
 		pr_err("%s: panel_icm_thread  create fail:%d!!!\n", __func__, ret);
@@ -242,32 +210,19 @@ static int lcdc_suspend(struct msm_panel_data *fb_panel)
 #endif
 #ifdef CONFIG_PANEL_SELF_REFRESH
 	if (lcdc->mdp->mdp_dev.overrides & MSM_MDP_RGB_PANEL_SELE_REFRESH) {
-		mutex_lock(&panel_icm->icm_lock);
-		panel_icm->icm_doable = false;
-		pr_info("[ICM %s]: icm mode=%d, clock_enabled=%d\n", __func__, panel_icm->icm_mode, panel_icm->clock_enabled);
-		if (panel_icm->icm_mode == true && panel_icm->clock_enabled == false) {
-			if (panel_ops->refresh_disable)
-				panel_ops->refresh_disable(panel_ops);
-			panel_icm->icm_mode = false;
-		} else {
-			mdp_writel(lcdc->mdp, 0, MDP_LCDC_EN);
-			clk_disable(lcdc->pad_pclk);
-			clk_disable(lcdc->pclk);
-			clk_disable(lcdc->mdp_clk);
-		}
-		panel_icm->clock_enabled = false;
-		mutex_unlock(&panel_icm->icm_lock);
-	} else {
-		mdp_writel(lcdc->mdp, 0, MDP_LCDC_EN);
-		clk_disable(lcdc->pad_pclk);
-		clk_disable(lcdc->pclk);
-		clk_disable(lcdc->mdp_clk);
-	}
-#else
+	mutex_lock(&panel_icm->icm_lock);
+	panel_icm->icm_doable = false;
+	pr_info("[ICM %s]: icm mode=%d\n", __func__, panel_icm->icm_mode);
+	if (panel_icm->icm_mode == false) {
+#endif
 	mdp_writel(lcdc->mdp, 0, MDP_LCDC_EN);
 	clk_disable(lcdc->pad_pclk);
 	clk_disable(lcdc->pclk);
 	clk_disable(lcdc->mdp_clk);
+#ifdef CONFIG_PANEL_SELF_REFRESH
+	}
+	mutex_unlock(&panel_icm->icm_lock);
+       }
 #endif
 	if (panel_ops->uninit)
 		panel_ops->uninit(panel_ops);
@@ -286,6 +241,7 @@ static int lcdc_resume(struct msm_panel_data *fb_panel)
 		if (panel_ops->init(panel_ops) < 0)
 			printk(KERN_ERR "LCD init fail!\n");
 	}
+
 	clk_enable(lcdc->mdp_clk);
 	clk_enable(lcdc->pclk);
 	clk_enable(lcdc->pad_pclk);
@@ -299,7 +255,6 @@ static int lcdc_resume(struct msm_panel_data *fb_panel)
 	if (lcdc->mdp->mdp_dev.overrides & MSM_MDP_RGB_PANEL_SELE_REFRESH) {
 		mutex_lock(&panel_icm->icm_lock);
 		panel_icm->icm_doable = true;
-		panel_icm->clock_enabled = true;
 		mutex_unlock(&panel_icm->icm_lock);
 	}
 #endif
@@ -316,12 +271,9 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 	clk_enable(lcdc->pclk);
 	clk_enable(lcdc->pad_pclk);
 
-#ifdef CONFIG_MSM_MDP40
-	mdp_writel(lcdc->mdp, 0, MDP_LCDC_EN);
-	mdelay(10);
-#endif
 	clk_set_rate(lcdc->pclk, lcdc->parms.clk_rate);
 	clk_set_rate(lcdc->pad_pclk, lcdc->parms.clk_rate);
+
 	/* write the lcdc params */
 	mdp_writel(lcdc->mdp, lcdc->parms.hsync_ctl, MDP_LCDC_HSYNC_CTL);
 	mdp_writel(lcdc->mdp, lcdc->parms.vsync_period, MDP_LCDC_VSYNC_PERIOD);
@@ -339,6 +291,7 @@ static int lcdc_hw_init(struct mdp_lcdc_info *lcdc)
 	mdp_writel(lcdc->mdp, 0, MDP_LCDC_ACTIVE_V_START);
 	mdp_writel(lcdc->mdp, 0, MDP_LCDC_ACTIVE_V_END);
 	mdp_writel(lcdc->mdp, lcdc->parms.polarity, MDP_LCDC_CTL_POLARITY);
+
 	/* config the dma_p block that drives the lcdc data */
 	mdp_writel(lcdc->mdp, lcdc->fb_start, MDP_DMA_P_IBUF_ADDR);
 	mdp_writel(lcdc->mdp, (((fb_panel->fb_data->yres & 0x7ff) << 16) |
@@ -436,19 +389,13 @@ static void lcdc_overlay_start(void *priv, uint32_t addr, uint32_t stride,
 			pipe->srcp0_ystride = pipe->src_width * 4;
 		}
 		mdp4_overlay_format2pipe(pipe);
-		mdp_writel(pipe->mdp, 0, MDP_LCDC_EN);
-		mdelay(30);
 		mdp4_overlay_dmap_xy(pipe);
 		mdp4_overlay_dmap_cfg(pipe, 1);
 		mdp4_overlayproc_cfg(pipe);
-		mdp4_overlay_rgb_setup(pipe);
-		mdp4_overlay_reg_flush(pipe, 1); /* rgb1 and mixer0 */
-		mdp_writel(pipe->mdp, 1, MDP_LCDC_EN);
 		mdp->dma_config_dirty = false;
-	} else {
-		mdp4_overlay_rgb_setup(pipe);
-		mdp4_overlay_reg_flush(pipe, 1); /* rgb1 and mixer0 */
 	}
+	mdp4_overlay_rgb_setup(pipe);
+	mdp4_overlay_reg_flush(pipe, 1); /* rgb1 and mixer0 */
 
 }
 #else
@@ -619,11 +566,13 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	lcdc->fb_panel_data.fb_data = pdata->fb_data;
 	lcdc->fb_panel_data.interface_type = MSM_LCDC_INTERFACE;
 	lcdc->fb_panel_data.shutdown = lcdc_shutdown;
+
 	ret = lcdc_hw_init(lcdc);
 	if (ret) {
 		pr_err("%s: Cannot initialize the mdp_lcdc\n", __func__);
 		goto err_hw_init;
 	}
+
 	lcdc->fb_pdev.name = "msm_panel";
 	lcdc->fb_pdev.id = pdata->fb_id;
 	lcdc->fb_pdev.resource = pdata->fb_resource;
@@ -640,7 +589,7 @@ static int mdp_lcdc_probe(struct platform_device *pdev)
 	pr_info("%s: initialized\n", __func__);
 #ifdef CONFIG_PANEL_SELF_REFRESH
 	if (lcdc->mdp->mdp_dev.overrides & MSM_MDP_RGB_PANEL_SELE_REFRESH) {
-		ret = icm_init(lcdc);
+		ret = display_selfrefresh_init(lcdc);
 		if (ret) {
 			pr_err("%s: Cannot init dispaly selfrefresh \n", __func__);
 			goto err_plat_dev_reg;

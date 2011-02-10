@@ -88,7 +88,6 @@ void mdp4_overlay_update_lcd(struct mdp_info *mdp, uint32_t addr, uint32_t strid
 			    uint32_t width, uint32_t height, uint32_t x,
 			    uint32_t y)
 {
-	//uint8_t *src;
 	int ptype;
 	uint32_t mddi_ld_param;
 	uint16_t mddi_vdo_packet_reg;
@@ -114,17 +113,6 @@ void mdp4_overlay_update_lcd(struct mdp_info *mdp, uint32_t addr, uint32_t strid
 
 		mddi_vdo_packet_reg = MDDI_VDO_PACKET_PRIM;
 
-/*     FIXME: currently we use only one display
-
-		if (mfd->panel_info.type == MDDI_PANEL) {
-			if (mfd->panel_info.pdest == DISPLAY_1)
-				mddi_ld_param = 0;
-			else
-				mddi_ld_param = 1;
-		} else {
-			mddi_ld_param = 2;
-		}
-*/
 		mdp_writel(mdp, mddi_ld_param, 0x00090);
 		mdp_writel(mdp, (MDDI_VDO_PACKET_DESC_RGB565 << 16) | mddi_vdo_packet_reg, 0x00094);
 		mdp_writel(mdp, 0x01, 0x00098);

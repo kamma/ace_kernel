@@ -895,13 +895,19 @@ static u32 vid_dec_get_next_msg(struct video_client_ctx *client_ctx,
 	int rc;
 	struct vid_dec_msg *vid_dec_msg = NULL;
 
-	if (!client_ctx)
+	if (!client_ctx) {
+		ERR("%s(): !client_ctx\n", __func__);
 		return FALSE;
-
+	}
 	rc = wait_event_interruptible(client_ctx->msg_wait,
 				      vid_dec_msg_pending(client_ctx));
 	if (rc < 0 || client_ctx->stop_msg) {
 		DBG("rc = %d, stop_msg = %u \n", rc, client_ctx->stop_msg);
+		if (rc == -ERESTARTSYS && !client_ctx->stop_msg)
+		{
+			ERR("%s(): by system interrupt (retry), rc = %d\n", __func__, rc);
+			return TRUE;
+		}
 		return FALSE;
 	}
 

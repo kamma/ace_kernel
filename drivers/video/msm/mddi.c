@@ -410,6 +410,8 @@ static uint16_t mddi_init_registers(struct mddi_info *mddi)
 	mddi_writel(MDDI_HOST_TA2_LEN, TA2_LEN);
 	mddi_writel(0x003C, DISP_WAKE); /* wakeup counter */
 	mddi_writel(MDDI_HOST_REV_RATE_DIV, REV_RATE_DIV);
+	if (mddi->type == MSM_MDP_MDDI_TYPE_II)
+		mddi_writel(0x01, SF_LEN_CTL_REG);
 
 	mddi_writel(MDDI_REV_BUFFER_SIZE, REV_SIZE);
 	mddi_writel(MDDI_MAX_REV_PKT_SIZE, REV_ENCAP_SZ);
@@ -438,7 +440,7 @@ static uint16_t mddi_init_registers(struct mddi_info *mddi)
 	mddi_writel(0x0050, DRIVE_LO);
 	mddi_writel(0x00320000, PAD_IO_CTL);
 	if (mddi->type == MSM_MDP_MDDI_TYPE_II)
-		mddi_writel(0x40880020, PAD_CAL);
+		mddi_writel(0x40884020, PAD_CAL);
 	else
 		mddi_writel(0x00220020, PAD_CAL);
 #else
@@ -487,7 +489,8 @@ static void mddi_resume(struct msm_mddi_client_data *cdata)
 	struct mddi_info *mddi = container_of(cdata, struct mddi_info,
 					      client_data);
 	wake_lock(&mddi->idle_lock);
-	mddi_set_auto_hibernate(&mddi->client_data, 0);
+	if (mddi->type == MSM_MDP_MDDI_TYPE_I)
+		mddi_set_auto_hibernate(&mddi->client_data, 0);
 	/* turn on the client */
 	if (mddi->power_client)
 		mddi->power_client(&mddi->client_data, 1);
@@ -508,7 +511,8 @@ static void mddi_resume(struct msm_mddi_client_data *cdata)
 	if (mddi->type == MSM_MDP_MDDI_TYPE_I)
 		mddi_writel(MDDI_CMD_SEND_RTD, CMD);
 	mddi_wait_interrupt(mddi, MDDI_INT_NO_CMD_PKTS_PEND);
-	mddi_set_auto_hibernate(&mddi->client_data, 1);
+	if (mddi->type == MSM_MDP_MDDI_TYPE_I)
+		mddi_set_auto_hibernate(&mddi->client_data, 1);
 	wake_unlock(&mddi->idle_lock);
 }
 
@@ -728,9 +732,6 @@ uint32_t mddi_remote_read(struct msm_mddi_client_data *cdata, uint32_t reg)
 
 	do {
 		init_completion(&ri.done);
-		if (mddi->type == MSM_MDP_MDDI_TYPE_II)
-			mddi_set_auto_hibernate(&mddi->client_data, 0);
-		mddi_writel(MDDI_CMD_SEND_RTD, CMD);
 		mddi->reg_read = &ri;
 		mddi_writel(mddi->reg_read_addr, PRI_PTR);
 
@@ -743,14 +744,10 @@ uint32_t mddi_remote_read(struct msm_mddi_client_data *cdata, uint32_t reg)
 		/* while((s & MDDI_STAT_PRI_LINK_LIST_DONE) == 0){ */
 		/*	s = mddi_readl(STAT); */
 		/* } */
-		if (mddi->type == MSM_MDP_MDDI_TYPE_II) {
-			mddi_writel(MDDI_CMD_SEND_REV_ENCAP, CMD);
-			mddi_wait_interrupt(mddi, MDDI_INT_REV_DATA_AVAIL);
-		} else {
-			/* Enable Periodic Reverse Encapsulation. */
-			mddi_writel(MDDI_CMD_PERIODIC_REV_ENCAP | 1, CMD);
-			mddi_wait_interrupt(mddi, MDDI_INT_NO_CMD_PKTS_PEND);
-		}
+
+		/* Enable Periodic Reverse Encapsulation. */
+		mddi_writel(MDDI_CMD_PERIODIC_REV_ENCAP | 1, CMD);
+		mddi_wait_interrupt(mddi, MDDI_INT_NO_CMD_PKTS_PEND);
 		if (wait_for_completion_timeout(&ri.done, HZ/10) == 0 &&
 		    !ri.done.done) {
 			printk(KERN_INFO "mddi_remote_read(%x) timeout "
@@ -778,8 +775,6 @@ uint32_t mddi_remote_read(struct msm_mddi_client_data *cdata, uint32_t reg)
 		       "MDDI_CMD_SEND_RTD: int %x, stat %x, rtd val %x "
 		       "curr_rev_ptr %x\n", mddi_readl(INT), mddi_readl(STAT),
 		       mddi_readl(RTD_VAL), mddi_readl(CURR_REV_PTR));
-		if (mddi->type == MSM_MDP_MDDI_TYPE_II)
-			mddi_set_auto_hibernate(&mddi->client_data, 1);
 	} while (retry_count-- > 0);
 	/* Disable Periodic Reverse Encapsulation. */
 	mddi_writel(MDDI_CMD_PERIODIC_REV_ENCAP | 0, CMD);
@@ -790,6 +785,17 @@ uint32_t mddi_remote_read(struct msm_mddi_client_data *cdata, uint32_t reg)
 	mutex_unlock(&mddi->reg_read_lock);
 	return ri.result;
 }
+
+/*FIXME: workaround for Novatek*/
+void mddi_send_powerdown(struct msm_mddi_client_data *cdata)
+{
+	struct mddi_info *mddi = container_of(cdata, struct mddi_info,
+					      client_data);
+
+	mddi_writel(MDDI_CMD_POWERDOWN, CMD);
+	mddi_wait_interrupt(mddi, MDDI_INT_IN_HIBERNATION);
+}
+
 
 static struct mddi_info mddi_info[2];
 
@@ -1076,6 +1082,7 @@ dummy_client:
 	mddi->client_data.remote_read = mddi_remote_read;
 	mddi->client_data.auto_hibernate = mddi_set_auto_hibernate;
 	mddi->client_data.fb_resource = pdata->fb_resource;
+	mddi->client_data.send_powerdown = mddi_send_powerdown;
 	if (pdev->id == 0)
 		mddi->client_data.interface_type = MSM_MDDI_PMDH_INTERFACE;
 	else if (pdev->id == 1)

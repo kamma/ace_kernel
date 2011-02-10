@@ -231,6 +231,10 @@ int msm_set_voc_route(struct msm_snddev_info *dev_info,
 	int rc = 0;
 	u32 session_mask = 0;
 
+	if (dev_info == NULL) {
+		MM_ERR("%s: invalid device info\n", __func__);
+		return -EINVAL;
+	}
 	mutex_lock(&session_lock);
 	switch (stream_type) {
 	case AUDIO_ROUTE_STREAM_VOICE_RX:
@@ -774,8 +778,11 @@ void broadcast_event(u32 evt_id, u32 dev_id, u32 session_id)
 
 	if ((evt_id != AUDDEV_EVT_START_VOICE)
 		&& (evt_id != AUDDEV_EVT_END_VOICE)
-		&& (evt_id != AUDDEV_EVT_STREAM_VOL_CHG))
+		&& (evt_id != AUDDEV_EVT_STREAM_VOL_CHG)) {
 		dev_info = audio_dev_ctrl_find_dev(dev_id);
+		if (IS_ERR(dev_info))
+			return;
+	}
 
 	if (event.cb != NULL)
 		callback = event.cb;
@@ -785,6 +792,11 @@ void broadcast_event(u32 evt_id, u32 dev_id, u32 session_id)
 
 	evt_payload = kzalloc(sizeof(union auddev_evt_data),
 			GFP_KERNEL);
+
+	if (!evt_payload) {
+		MM_ERR("%s: fail to allocate memory\n", __func__);
+		return;
+	}
 
 	for (; ;) {
 		if (!(evt_id & callback->evt_id)) {

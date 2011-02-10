@@ -142,6 +142,12 @@ int afe_enable(u8 path_id, struct msm_afe_config *config)
 	struct msm_afe_state *afe = &the_afe_state;
 	int rc;
 
+	if (path_id < AFE_HW_PATH_CODEC_RX ||
+	    path_id > AFE_HW_PATH_MI2S_TX) {
+		MM_ERR("invalid path id %d\n", path_id);
+		return -EINVAL;
+	}
+
 	MM_INFO("%s: path %d\n", __func__, path_id);
 	mutex_lock(&afe->lock);
 	if (!afe->in_use && !afe->aux_conf_flag) {
@@ -236,6 +242,12 @@ int afe_disable(u8 path_id)
 {
 	struct msm_afe_state *afe = &the_afe_state;
 	int rc;
+
+	if (path_id < AFE_HW_PATH_CODEC_RX ||
+	    path_id > AFE_HW_PATH_MI2S_TX) {
+		MM_ERR("invalid path id %d\n", path_id);
+		return -EINVAL;
+	}
 
 	mutex_lock(&afe->lock);
 

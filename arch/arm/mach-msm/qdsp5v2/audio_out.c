@@ -502,10 +502,12 @@ static ssize_t audio_write(struct file *file, const char __user *buf,
 	/* just for this write, set us real-time */
 	if (!task_has_rt_policy(current)) {
 		struct cred *new = prepare_creds();
-		cap_raise(new->cap_effective, CAP_SYS_NICE);
-		commit_creds(new);
-		if ((sched_setscheduler(current, SCHED_RR, &s)) < 0)
-			MM_ERR("sched_setscheduler failed\n");
+		if (new != NULL) {
+			cap_raise(new->cap_effective, CAP_SYS_NICE);
+			commit_creds(new);
+			if ((sched_setscheduler(current, SCHED_RR, &s)) < 0)
+				MM_ERR("sched_setscheduler failed\n");
+		}
 	}
 
 	mutex_lock(&audio->write_lock);
@@ -556,8 +558,10 @@ static ssize_t audio_write(struct file *file, const char __user *buf,
 			MM_ERR("sched_setscheduler failed\n");
 		if (likely(!cap_nice)) {
 			struct cred *new = prepare_creds();
-			cap_lower(new->cap_effective, CAP_SYS_NICE);
-			commit_creds(new);
+			if (new != NULL) {
+				cap_lower(new->cap_effective, CAP_SYS_NICE);
+				commit_creds(new);
+			}
 		}
 	}
 

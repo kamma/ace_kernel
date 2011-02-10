@@ -226,7 +226,6 @@ static struct platform_device msm_imic_device = {
 
 static struct adie_codec_action_unit ihs_stereo_rx_48KHz_osr256_actions[] =
 	HEADSET_STEREO_RX_CAPLESS_48000_OSR_256;
-	/* HEADSET_STEREO_RX_LEGACY_48000_OSR_256; */
 
 static struct adie_codec_hwsetting_entry ihs_stereo_rx_settings[] = {
 	{
@@ -435,7 +434,7 @@ static struct adie_codec_action_unit ifmradio_speaker_osr64_actions[] =
 
 static struct adie_codec_hwsetting_entry ifmradio_speaker_settings[] = {
 	{
-		.freq_plan = 48000,
+		.freq_plan = 8000,
 		.osr = 256,
 		.actions = ifmradio_speaker_osr64_actions,
 		.action_sz = ARRAY_SIZE(ifmradio_speaker_osr64_actions),
@@ -455,7 +454,7 @@ static struct snddev_icodec_data snddev_ifmradio_speaker_data = {
 	.acdb_id = ACDB_ID_LP_FM_SPKR_PHONE_STEREO_RX,
 	.profile = &ifmradio_speaker_profile,
 	.channel_mode = 1,
-	.default_sample_rate = 48000,
+	.default_sample_rate = 8000,
 	.pamp_on = fm_speaker_enable,
 	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
@@ -488,12 +487,12 @@ static struct snddev_icodec_data snddev_ifmradio_headset_data = {
 	.capability = (SNDDEV_CAP_RX | SNDDEV_CAP_FM),
 	.name = "fmradio_headset_rx",
 	.copp_id = 0,
-	.acdb_id = ACDB_ID_LP_FM_HEADSET_SPKR_STEREO_RX,
+	.acdb_id = ACDB_ID_HEADSET_SPKR_STEREO,
 	.profile = &ifmradio_headset_profile,
 	.channel_mode = 2,
 	.default_sample_rate = 48000,
+	/* change to raise ncp power. capless need ncp bias. */
 	.pamp_on = fm_headset_enable,
-	.dev_vol_type = SNDDEV_DEV_VOL_DIGITAL,
 };
 
 static struct platform_device msm_ifmradio_headset_device = {
@@ -882,6 +881,44 @@ static struct platform_device msm_ivr_mic_device = {
 	.dev = { .platform_data = &snddev_ivr_mic_data },
 };
 
+
+static struct adie_codec_action_unit ihs_vr_mic_48KHz_osr256_actions[] =
+	HEADSET_MONO_TX_48000_OSR_256;
+
+static struct adie_codec_hwsetting_entry ihs_vr_mic_settings[] = {
+	{
+		.freq_plan = 48000,
+		.osr = 256,
+		.actions = ihs_vr_mic_48KHz_osr256_actions,
+		.action_sz = ARRAY_SIZE(ihs_vr_mic_48KHz_osr256_actions),
+	}
+};
+
+static struct adie_codec_dev_profile ihs_vr_mic_profile = {
+	.path_type = ADIE_CODEC_TX,
+	.settings = ihs_vr_mic_settings,
+	.setting_sz = ARRAY_SIZE(ihs_vr_mic_settings),
+};
+
+static struct snddev_icodec_data snddev_ihs_vr_mic_data = {
+	.capability = (SNDDEV_CAP_TX | SNDDEV_CAP_VOICE),
+	.name = "headset_vr_tx",
+	.copp_id = 0,
+	.acdb_id = ACDB_ID_HEADSET_MIC,
+	.profile = &ihs_vr_mic_profile,
+	.channel_mode = 1,
+	.pmctl_id = NULL,
+	.pmctl_id_sz = 0,
+	.default_sample_rate = 48000,
+	.pamp_on = ext_mic_enable,
+};
+
+static struct platform_device msm_ihs_vr_mic_device = {
+	.name = "snddev_icodec",
+	.id = 26,
+	.dev = { .platform_data = &snddev_ihs_vr_mic_data },
+};
+
 static struct platform_device *snd_devices_surf[] __initdata = {
 	&msm_iearpiece_device,
 	&msm_imic_device,
@@ -901,7 +938,8 @@ static struct platform_device *snd_devices_surf[] __initdata = {
 	&msm_iusb_headset_rx_device,
 	&msm_ihac_rx_device,
 	&msm_ialt_rx_device,
-	&msm_ivr_mic_device
+	&msm_ivr_mic_device,
+	&msm_ihs_vr_mic_device
 };
 
 void htc_7x30_register_analog_ops(struct q5v2audio_analog_ops *ops)

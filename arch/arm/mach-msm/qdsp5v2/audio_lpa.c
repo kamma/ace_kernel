@@ -684,8 +684,11 @@ static long audlpa_process_event_req(struct audio *audio, void __user *arg)
 		usr_evt.event_type = drv_evt->event_type;
 		usr_evt.event_payload = drv_evt->payload;
 		list_add_tail(&drv_evt->list, &audio->free_event_queue);
-	} else
-		rc = -1;
+	} else {
+		MM_ERR("%s: fail to find event\n", __func__);
+		return -1;
+	}
+
 	spin_unlock_irqrestore(&audio->event_queue_lock, flags);
 
 	if (drv_evt->event_type == AUDIO_EVENT_WRITE_DONE ||
@@ -1428,7 +1431,7 @@ static const struct file_operations audlpa_debug_fops = {
 static int audio_open(struct inode *inode, struct file *file)
 {
 	struct audio *audio = NULL;
-	int rc, i, dec_attrb = 0, decid;
+	int rc = 0, i, dec_attrb = 0, decid;
 	struct audlpa_event *e_node = NULL;
 #ifdef CONFIG_DEBUG_FS
 	/* 4 bytes represents decoder number, 1 byte for terminate string */
@@ -1454,6 +1457,11 @@ static int audio_open(struct inode *inode, struct file *file)
 
 	/* Allocate the decoder based on inode minor number*/
 	audio->minor_no = iminor(inode);
+	if (audio->minor_no >= ARRAY_SIZE(audlpa_decs)) {
+		MM_ERR("incorrect minor_no %d\n", audio->minor_no);
+		kfree(audio);
+		goto done;
+	}
 	dec_attrb |= audlpa_decs[audio->minor_no].dec_attrb;
 	audio->codec_ops.ioctl = audlpa_decs[audio->minor_no].ioctl;
 	audio->codec_ops.adec_params = audlpa_decs[audio->minor_no].adec_params;

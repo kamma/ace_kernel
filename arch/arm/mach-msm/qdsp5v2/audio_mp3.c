@@ -1069,8 +1069,11 @@ static long audmp3_process_event_req(struct audio *audio, void __user *arg)
 		usr_evt.event_type = drv_evt->event_type;
 		usr_evt.event_payload = drv_evt->payload;
 		list_add_tail(&drv_evt->list, &audio->free_event_queue);
-	} else
-		rc = -1;
+	} else {
+		MM_ERR("%s: fail to find event\n", __func__);
+		return -1;
+	}
+
 	spin_unlock_irqrestore(&audio->event_queue_lock, flags);
 
 	if (drv_evt->event_type == AUDIO_EVENT_WRITE_DONE ||

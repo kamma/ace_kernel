@@ -32,6 +32,8 @@
 #include <linux/workqueue.h>
 #include <linux/android_pmem.h>
 #include <linux/clk.h>
+#include <mach/perflock.h>
+#include <linux/writeback.h>
 
 #include "vidc_type.h"
 #include "vcd_api.h"
@@ -56,6 +58,13 @@ static struct class *vid_enc_class;
 static int vid_enc_ioctl(struct inode *inode, struct file *file,
 	unsigned cmd, unsigned long arg);
 static int stop_cmd;
+static struct perf_lock media_perf_lock;
+
+static uint32_t pre_dirty_expire_interval;
+static uint32_t pre_dirty_writeback_interval;
+static uint32_t pre_vm_dirty_ratio;
+static uint32_t pre_vm_highmem_is_dirtyable;
+static uint32_t pre_dirty_background_ratio;
 
 static s32 vid_enc_get_empty_client_index(void)
 {
@@ -572,6 +581,14 @@ static int vid_enc_release(struct inode *inode, struct file *file)
 #ifndef USE_RES_TRACKER
 	vidc_disable_clk();
 #endif
+	if (is_perf_lock_active(&media_perf_lock)) {
+		perf_unlock(&media_perf_lock);
+		dirty_expire_interval = pre_dirty_expire_interval;
+		vm_dirty_ratio = pre_vm_dirty_ratio;
+		dirty_background_ratio = pre_dirty_background_ratio;
+		vm_highmem_is_dirtyable = pre_vm_highmem_is_dirtyable;
+		dirty_writeback_interval = pre_dirty_writeback_interval;
+	}
 	INFO("\n msm_vidc_enc: Return from %s()", __func__);
 	return 0;
 }
@@ -694,6 +711,8 @@ static int __init vid_enc_init(void)
 		goto error_vid_enc_cdev_add;
 	}
 	vid_enc_vcd_init();
+	perf_lock_init(&media_perf_lock, PERF_LOCK_HIGHEST, "media");
+
 	return 0;
 
 error_vid_enc_cdev_add:
@@ -944,6 +963,32 @@ static int vid_enc_ioctl(struct inode *inode, struct file *file,
 			ERR("setting VEN_IOCTL_CMD_START failed\n");
 			return -EIO;
 		}
+		{
+			u32 width = 0;
+			u32 height = 0;
+			vid_enc_set_get_framesize(client_ctx, &height, &width , 0);
+			INFO("%s: VEN_IOCTL_CMD_START :width %d, height %d\n", __func__, width, height);
+			if (width*height >= 1280*720) {
+				perf_lock(&media_perf_lock);
+				pr_info("OLD VM attr: dirty_expire_interval %d, " \
+					"dirty_writeback_interval %d, " \
+					"vm_dirty_ratio %d, vm_dirty_background_ratio %d, " \
+					"vm_highmem_is_dirtyable %d \n",
+					dirty_expire_interval, dirty_writeback_interval,
+					vm_dirty_ratio, dirty_background_ratio,
+					vm_highmem_is_dirtyable);
+				pre_dirty_expire_interval = dirty_expire_interval;
+				pre_dirty_writeback_interval = dirty_writeback_interval;
+				pre_vm_dirty_ratio = vm_dirty_ratio;
+				pre_dirty_background_ratio = dirty_background_ratio;
+				pre_vm_highmem_is_dirtyable = vm_highmem_is_dirtyable;
+				dirty_expire_interval = 5000;
+				dirty_writeback_interval = 50;
+				vm_dirty_ratio = 40;
+				dirty_background_ratio = 5;
+				vm_highmem_is_dirtyable = 1;
+			}
+		}
 		break;
 
 	case VEN_IOCTL_CMD_STOP:
@@ -952,6 +997,14 @@ static int vid_enc_ioctl(struct inode *inode, struct file *file,
 		if (!result) {
 			ERR("setting VEN_IOCTL_CMD_STOP failed\n");
 			return -EIO;
+		}
+		if (is_perf_lock_active(&media_perf_lock)) {
+			perf_unlock(&media_perf_lock);
+			dirty_expire_interval = pre_dirty_expire_interval;
+			vm_dirty_ratio = pre_vm_dirty_ratio;
+			dirty_background_ratio = pre_dirty_background_ratio;
+			vm_highmem_is_dirtyable = pre_vm_highmem_is_dirtyable;
+			dirty_writeback_interval = pre_dirty_writeback_interval;
 		}
 		stop_cmd = 1;
 		break;

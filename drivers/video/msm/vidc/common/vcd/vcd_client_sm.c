@@ -1578,7 +1578,7 @@ static const struct vcd_clnt_state_table_type_t vcd_clnt_table_starting = {
 	 NULL,
 	 NULL,
 	 NULL,
-	 NULL,
+	 vcd_get_property_cmn,
 	 NULL,
 	 NULL,
 	 NULL,

@@ -413,6 +413,12 @@ s32 initialize_memory(void)
 	acdb_data.virt_addr = dma_alloc_coherent(NULL, ACDB_BUF_SIZE,
 				 &acdb_data.phys_addr, GFP_KERNEL);
 
+	if (acdb_data.virt_addr == NULL) {
+		MM_ERR("ACDB=> Could not allocate acdb buffer\n");
+		result = -ENOMEM;
+		goto done;
+	}
+
 	memset(acdb_data.virt_addr, 0, sizeof(*acdb_data.virt_addr));
 
 	acdb_data.device_info = kmalloc(sizeof(*acdb_data.device_info),

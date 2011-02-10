@@ -582,16 +582,22 @@ static void adsp_rtos_mtoa_cb(void *context, uint32_t param,
 		wake_up(&adsp_info.init_info_wait);
 		return;
 	}
-	pkt_ptr = &args->adsp_rtos_mp_mtoa_data.mp_mtoa_packet;
-	module_id = pkt_ptr->module;
-	image     = pkt_ptr->image;
 
-	MM_INFO("rpc event=%d, proc_id=%d, module=%d, image=%d\n",
-		event, proc_id, module_id, image);
+	if (args != NULL) {
+		pkt_ptr = &args->adsp_rtos_mp_mtoa_data.mp_mtoa_packet;
+		module_id = pkt_ptr->module;
+		image     = pkt_ptr->image;
 
-	module = find_adsp_module_by_id(&adsp_info, module_id);
-	if (!module) {
-		MM_ERR("module %d is not supported!\n", module_id);
+		MM_INFO("rpc event=%d, proc_id=%d, module=%d, image=%d\n",
+			event, proc_id, module_id, image);
+
+		module = find_adsp_module_by_id(&adsp_info, module_id);
+		if (!module) {
+			MM_ERR("module %d is not supported!\n", module_id);
+			return;
+		}
+	} else {
+		MM_ERR("NULL args\n");
 		return;
 	}
 
